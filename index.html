@@ -52,7 +52,7 @@
                         </div>
                         <div>
                             <label for="age-filter" class="block text-sm font-medium text-gray-700">연령대</label>
-                            <select id="age-filter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 sm:text-sm rounded-md"><option value="">전체</option><option value="young-adult">청년</option><option value="middle-aged">중년</option><option value="elder">노인</option><option value="child">어린이</option></select>
+                            <select id="age-filter" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 sm:text-sm rounded-md"><option value="">전체</option><option value="child">어린이</option><option value="young-adult">청년</option><option value="middle-aged">중년</option><option value="elder">노인</option></select>
                         </div>
                     </div>
                 </div>
@@ -76,9 +76,8 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            let allVoices = [];
-            // --- 수정: voice_id 대신 voice 객체 전체를 저장 ---
-            let selectedVoice = null; 
+            let allVoicesCache = []; // 전체 보이스 목록을 캐싱하여 언어 필터를 만들 때 사용
+            let selectedVoice = null;
 
             const statusMessage = document.getElementById('status-message');
             const textInput = document.getElementById('text-input');
@@ -92,13 +91,11 @@
                 try {
                     const data = await response.json();
                     return JSON.stringify(data.message || data.detail || data);
-                } catch (e) {
-                    return response.statusText;
-                }
+                } catch (e) { return response.statusText; }
             };
 
             const populateLanguageFilter = (voices) => {
-                const languages = [...new Set(voices.flatMap(v => (v.language || '').split(',')))].filter(Boolean).sort();
+                const languages = [...new Set(voices.flatMap(v => Array.isArray(v.language) ? v.language : (v.language || '').split(',')))].filter(Boolean).sort();
                 
                 languageFilter.innerHTML = '<option value="">전체</option>';
                 languages.forEach(lang => {
@@ -111,7 +108,7 @@
 
             const displayVoices = (voices) => {
                 voiceList.innerHTML = '';
-                if (voices.length === 0) {
+                if (!voices || voices.length === 0) {
                     voiceList.innerHTML = `<p class="col-span-full text-center text-gray-500">조건에 맞는 목소리가 없습니다.</p>`;
                     return;
                 }
@@ -122,7 +119,6 @@
                     card.addEventListener('click', () => {
                         document.querySelectorAll('.voice-card').forEach(c => c.classList.remove('selected', 'bg-blue-100'));
                         card.classList.add('selected', 'bg-blue-100');
-                        // --- 수정: voice 객체 전체를 저장 ---
                         selectedVoice = voice;
                         updateGenerateButtonState();
                     });
@@ -135,23 +131,28 @@
                     tagsContainer.className = 'mt-2 text-center';
                     
                     const genderText = { 'male': '남성', 'female': '여성'}[voice.gender] || '';
-                    if (genderText) {
-                         tagsContainer.innerHTML += `<span class="tag bg-blue-100 text-blue-800">${genderText}</span>`;
-                    }
-                    const ageText = { 'child': '어린이', 'young-adult': '청년', 'middle-aged': '중년', 'elder': '노인'}[voice.age_group] || '';
-                     if (ageText) {
-                         tagsContainer.innerHTML += `<span class="tag bg-green-100 text-green-800">${ageText}</span>`;
-                    }
+                    if (genderText) tagsContainer.innerHTML += `<span class="tag bg-blue-100 text-blue-800">${genderText}</span>`;
                     
+                    const ageText = { 'child': '어린이', 'young-adult': '청년', 'middle-aged': '중년', 'elder': '노인'}[voice.age_group] || '';
+                    if (ageText) tagsContainer.innerHTML += `<span class="tag bg-green-100 text-green-800">${ageText}</span>`;
+                    
+                    const languages = Array.isArray(voice.language) ? voice.language : (voice.language || '').split(',');
+                    languages.forEach(lang => {
+                        const langText = { 'ko': 'KOR', 'en': 'ENG', 'ja': 'JPN' }[lang.trim()] || lang.trim().toUpperCase();
+                        tagsContainer.innerHTML += `<span class="tag bg-yellow-100 text-yellow-800">${langText}</span>`;
+                    });
+
                     const playButton = document.createElement('button');
                     playButton.className = 'play-btn mt-2 p-1 text-blue-600 hover:text-blue-800 rounded-full self-center focus:outline-none focus:ring-2 focus:ring-blue-400';
                     playButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
-                    playButton.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (voice.sample_url) new Audio(voice.sample_url).play();
-                    });
                     
-                    if (!voice.sample_url) {
+                    const defaultSample = voice.samples && voice.samples.length > 0 ? voice.samples[0].url : null;
+                    if (defaultSample) {
+                        playButton.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            new Audio(defaultSample).play();
+                        });
+                    } else {
                         playButton.disabled = true;
                         playButton.classList.add('text-gray-300', 'cursor-not-allowed');
                     }
@@ -167,19 +168,18 @@
                 statusMessage.textContent = '목소리 목록을 검색하는 중...';
                 statusMessage.classList.remove('text-red-600');
                 
-                const params = new URLSearchParams();
+                const params = new URLSearchParams({ page_size: 100 });
                 if (languageFilter.value) params.append('language', languageFilter.value);
                 if (genderFilter.value) params.append('gender', genderFilter.value);
                 if (ageFilter.value) params.append('age', ageFilter.value);
-                params.append('page_size', 100);
-                const queryString = params.toString();
-
+                
                 try {
-                    const res = await fetch(`/api/voices?${queryString}`);
+                    const res = await fetch(`/api/voices?${params.toString()}`);
                     if (!res.ok) throw new Error(await getErrorMessage(res));
                     const data = await res.json();
                     
-                    const voices = data.voices || [];
+                    // API 응답 구조가 { items: [...] } 이므로 items를 사용합니다.
+                    const voices = data.items || [];
                     displayVoices(voices);
                     statusMessage.textContent = `${voices.length}개의 목소리를 찾았습니다.`;
                     
@@ -191,7 +191,6 @@
             };
             
             const updateGenerateButtonState = () => {
-                // --- 수정: selectedVoice 객체의 존재 여부로 확인 ---
                 generateBtn.disabled = !(selectedVoice && textInput.value.trim() !== "");
             };
 
@@ -203,16 +202,16 @@
                 loader.classList.remove('hidden'); icon.classList.add('hidden'); btnText.textContent = "생성 중..."; generateBtn.disabled = true;
 
                 try {
-                    // --- 수정: 언어 정보를 함께 전송 ---
-                    // 선택된 목소리가 지원하는 언어 중 첫 번째 언어를 사용합니다.
-                    const language = selectedVoice.language ? selectedVoice.language.split(',')[0].trim() : 'ko';
+                    // 선택된 목소리가 지원하는 언어 중 첫 번째 언어를 기본값으로 사용
+                    const languages = Array.isArray(selectedVoice.language) ? selectedVoice.language : (selectedVoice.language || '').split(',');
+                    const language = languages.length > 0 ? languages[0].trim() : 'ko';
 
                     const res = await fetch(`/api/proxy/${selectedVoice.voice_id}`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ 
                             text: textInput.value,
-                            language: language // API 요구사항에 맞춰 언어 정보 추가
+                            language: language
                         })
                     });
                     if (!res.ok) throw new Error(await getErrorMessage(res));
@@ -227,20 +226,21 @@
                 }
             };
 
-            textInput.addEventListener('input', updateGenerateButtonState);
+            [textInput, languageFilter, genderFilter, ageFilter].forEach(el => el.addEventListener('input', updateGenerateButtonState));
             [languageFilter, genderFilter, ageFilter].forEach(el => el.addEventListener('change', fetchAndDisplayVoices));
             generateBtn.addEventListener('click', handleGenerateTTS);
             
+            // 페이지 로딩 시 전체 목소리 목록을 한 번만 가져와서 언어 필터를 채웁니다.
             (async () => {
                 statusMessage.textContent = '전체 목소리 목록을 불러오는 중...';
                 try {
                     const res = await fetch(`/api/voices?page_size=100`); 
                     if (!res.ok) throw new Error(await getErrorMessage(res));
                     const data = await res.json();
-                    allVoices = data.voices || [];
-                    populateLanguageFilter(allVoices);
-                    displayVoices(allVoices);
-                    statusMessage.textContent = `${allVoices.length}개의 목소리를 찾았습니다.`;
+                    allVoicesCache = data.items || [];
+                    populateLanguageFilter(allVoicesCache);
+                    displayVoices(allVoicesCache); // 처음에는 전체 목록 표시
+                    statusMessage.textContent = `${allVoicesCache.length}개의 목소리를 찾았습니다.`;
                 } catch (error) {
                     statusMessage.textContent = `오류: 목소리를 불러오지 못했습니다. (${error.message})`;
                     statusMessage.classList.add('text-red-600');
