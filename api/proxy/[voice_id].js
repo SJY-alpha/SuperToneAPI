@@ -7,7 +7,6 @@ module.exports = async (req, res) => {
 
   const { voice_id } = req.query;
   const { text } = req.body;
-
   if (!text) {
     return res.status(400).json({ message: 'Text is required.' });
   }
@@ -19,11 +18,13 @@ module.exports = async (req, res) => {
 
   try {
     const apiResponse = await axios.post(
-      `https://api.supertone.io/v1/text-to-speech/${voice_id}`,
+      // 올바른 API 주소로 수정
+      `https://supertoneapi.com/v1/text-to-speech/${voice_id}`,
       { text },
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          // 올바른 인증 헤더로 수정
+          'x-sup-api-key': apiKey,
           'Content-Type': 'application/json',
         },
         responseType: 'arraybuffer'
