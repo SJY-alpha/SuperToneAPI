@@ -1,6 +1,7 @@
 const axios = require('axios');
 
 module.exports = async (req, res) => {
+  // GET 요청이 아니면 거부합니다.
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method Not Allowed' });
   }
@@ -11,20 +12,17 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // 클라이언트에서 보낸 쿼리(?gender=male 등)를 그대로 Supertone 검색 API로 전달합니다.
     const apiResponse = await axios.get('https://supertoneapi.com/v1/voices/search', {
-      headers: {
-        'x-sup-api-key': apiKey
+      headers: { 
+        'x-sup-api-key': apiKey 
       },
-      params: req.query
+      params: req.query 
     });
     
-    // --- 최종 수정 ---
-    // Supertone API의 'items' 배열을 프론트엔드가 기대하는 'voices' 배열로 변경해줍니다.
-    const responseForClient = {
-      voices: apiResponse.data.items || [] 
-    };
-    
-    return res.status(200).json(responseForClient);
+    // Supertone API가 보낸 응답을 수정 없이 그대로 클라이언트에 반환합니다.
+    // (e.g., {"items": [...], "total": 100})
+    return res.status(200).json(apiResponse.data);
 
   } catch (error) {
     console.error('Error in /api/voices/search:', error);
