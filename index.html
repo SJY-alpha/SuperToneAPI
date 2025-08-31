@@ -11,7 +11,6 @@
         .voice-card.selected { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); border-color: #3b82f6; }
         .loader { border-top-color: #3498db; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        /* 미리듣기 버튼에 항상 포인터 커서가 표시되도록 스타일 추가 */
         .play-btn { cursor: pointer; }
         .tag {
             display: inline-block;
@@ -77,8 +76,9 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            let allVoices = []; // 모든 목소리 원본 데이터를 저장할 배열
-            let selectedVoiceId = null;
+            let allVoices = [];
+            // --- 수정: voice_id 대신 voice 객체 전체를 저장 ---
+            let selectedVoice = null; 
 
             const statusMessage = document.getElementById('status-message');
             const textInput = document.getElementById('text-input');
@@ -91,7 +91,7 @@
             const getErrorMessage = async (response) => {
                 try {
                     const data = await response.json();
-                    return JSON.stringify(data.message || data);
+                    return JSON.stringify(data.message || data.detail || data);
                 } catch (e) {
                     return response.statusText;
                 }
@@ -122,7 +122,8 @@
                     card.addEventListener('click', () => {
                         document.querySelectorAll('.voice-card').forEach(c => c.classList.remove('selected', 'bg-blue-100'));
                         card.classList.add('selected', 'bg-blue-100');
-                        selectedVoiceId = voice.voice_id;
+                        // --- 수정: voice 객체 전체를 저장 ---
+                        selectedVoice = voice;
                         updateGenerateButtonState();
                     });
 
@@ -170,6 +171,7 @@
                 if (languageFilter.value) params.append('language', languageFilter.value);
                 if (genderFilter.value) params.append('gender', genderFilter.value);
                 if (ageFilter.value) params.append('age', ageFilter.value);
+                params.append('page_size', 100);
                 const queryString = params.toString();
 
                 try {
@@ -189,7 +191,8 @@
             };
             
             const updateGenerateButtonState = () => {
-                generateBtn.disabled = !(selectedVoiceId && textInput.value.trim() !== "");
+                // --- 수정: selectedVoice 객체의 존재 여부로 확인 ---
+                generateBtn.disabled = !(selectedVoice && textInput.value.trim() !== "");
             };
 
             const handleGenerateTTS = async () => {
@@ -198,8 +201,20 @@
                 const icon = document.getElementById('generate-icon');
                 if (generateBtn.disabled) return;
                 loader.classList.remove('hidden'); icon.classList.add('hidden'); btnText.textContent = "생성 중..."; generateBtn.disabled = true;
+
                 try {
-                    const res = await fetch(`/api/proxy/${selectedVoiceId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: textInput.value }) });
+                    // --- 수정: 언어 정보를 함께 전송 ---
+                    // 선택된 목소리가 지원하는 언어 중 첫 번째 언어를 사용합니다.
+                    const language = selectedVoice.language ? selectedVoice.language.split(',')[0].trim() : 'ko';
+
+                    const res = await fetch(`/api/proxy/${selectedVoice.voice_id}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                            text: textInput.value,
+                            language: language // API 요구사항에 맞춰 언어 정보 추가
+                        })
+                    });
                     if (!res.ok) throw new Error(await getErrorMessage(res));
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
@@ -216,18 +231,15 @@
             [languageFilter, genderFilter, ageFilter].forEach(el => el.addEventListener('change', fetchAndDisplayVoices));
             generateBtn.addEventListener('click', handleGenerateTTS);
             
-            // 페이지가 처음 로드될 때만 전체 목록을 가져와서 언어 필터를 채웁니다.
             (async () => {
                 statusMessage.textContent = '전체 목소리 목록을 불러오는 중...';
                 try {
-                    // --- 최종 수정: page_size=100 추가 ---
-                    // API가 허용하는 최대치인 100개의 목소리를 가져와서 언어 필터를 만듭니다.
                     const res = await fetch(`/api/voices?page_size=100`); 
                     if (!res.ok) throw new Error(await getErrorMessage(res));
                     const data = await res.json();
                     allVoices = data.voices || [];
-                    populateLanguageFilter(allVoices); // 더 많은 데이터를 기반으로 언어 필터 채우기
-                    displayVoices(allVoices); // 전체 목록 표시
+                    populateLanguageFilter(allVoices);
+                    displayVoices(allVoices);
                     statusMessage.textContent = `${allVoices.length}개의 목소리를 찾았습니다.`;
                 } catch (error) {
                     statusMessage.textContent = `오류: 목소리를 불러오지 못했습니다. (${error.message})`;
