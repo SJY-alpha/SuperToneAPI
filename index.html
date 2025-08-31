@@ -76,6 +76,7 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            let allVoicesCache = []; // 모든 목소리를 저장할 캐시
             let selectedVoice = null;
 
             const statusMessage = document.getElementById('status-message');
@@ -106,13 +107,28 @@
                 });
             };
 
-            const displayVoices = (voices) => {
+            const displayVoices = () => {
+                const lang = languageFilter.value;
+                const gender = genderFilter.value;
+                const age = ageFilter.value;
+
+                // 서버에 다시 요청하는 대신, 캐시된 전체 목록에서 필터링합니다.
+                const filteredVoices = allVoicesCache.filter(voice => {
+                    const langMatch = !lang || (Array.isArray(voice.language) ? voice.language.includes(lang) : (voice.language || '').includes(lang));
+                    const genderMatch = !gender || voice.gender === gender;
+                    const ageMatch = !age || voice.age_group === age;
+                    return langMatch && genderMatch && ageMatch;
+                });
+
                 voiceList.innerHTML = '';
-                if (!voices || voices.length === 0) {
+                if (filteredVoices.length === 0) {
                     voiceList.innerHTML = `<p class="col-span-full text-center text-gray-500">조건에 맞는 목소리가 없습니다.</p>`;
                     return;
                 }
-                voices.forEach(voice => {
+
+                statusMessage.textContent = `${filteredVoices.length}개의 목소리를 찾았습니다.`;
+
+                filteredVoices.forEach(voice => {
                     const card = document.createElement('div');
                     card.className = 'voice-card flex flex-col justify-between p-3 border-2 border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 cursor-pointer';
                     card.addEventListener('click', () => {
@@ -155,30 +171,6 @@
                 });
             };
 
-            const runSearch = async () => {
-                statusMessage.textContent = '목소리 목록을 검색하는 중...';
-                statusMessage.classList.remove('text-red-600');
-                
-                const params = new URLSearchParams({ page_size: 100 });
-                if (languageFilter.value) params.append('language', languageFilter.value);
-                if (genderFilter.value) params.append('gender', genderFilter.value);
-                if (ageFilter.value) params.append('age', ageFilter.value);
-                
-                try {
-                    const res = await fetch(`/api/voices?${params.toString()}`);
-                    if (!res.ok) throw new Error(await getErrorMessage(res));
-                    const data = await res.json();
-                    
-                    const voices = data.items || [];
-                    displayVoices(voices);
-                    statusMessage.textContent = `${data.total || voices.length}개의 목소리를 찾았습니다.`;
-                } catch (error) {
-                    console.error("Failed to search voices:", error);
-                    statusMessage.textContent = `오류: 목소리를 불러오지 못했습니다. (${error.message})`;
-                    statusMessage.classList.add('text-red-600');
-                }
-            };
-            
             const updateGenerateButtonState = () => {
                 generateBtn.disabled = !(selectedVoice && textInput.value.trim() !== "");
             };
@@ -212,13 +204,14 @@
             const initializeApp = async () => {
                 statusMessage.textContent = '전체 목소리 목록을 불러오는 중...';
                 try {
-                    const res = await fetch(`/api/voices?page_size=100`); 
+                    const res = await fetch(`/api/voices`); 
                     if (!res.ok) throw new Error(await getErrorMessage(res));
                     const data = await res.json();
-                    const allVoicesForFilter = data.items || [];
-                    populateLanguageFilter(allVoicesForFilter);
-                    displayVoices(allVoicesForFilter); 
-                    statusMessage.textContent = `${data.total || allVoicesForFilter.length}개의 목소리를 찾았습니다.`;
+                    
+                    // 공식 문서에 따라, /v1/voices 응답은 {"voices": [...]} 형식입니다.
+                    allVoicesCache = data.voices || [];
+                    populateLanguageFilter(allVoicesCache);
+                    displayVoices(); // 필터링 없이 전체 목록을 표시합니다.
                 } catch (error) {
                     statusMessage.textContent = `오류: 목소리를 불러오지 못했습니다. (${error.message})`;
                     statusMessage.classList.add('text-red-600');
@@ -226,7 +219,8 @@
             };
 
             textInput.addEventListener('input', updateGenerateButtonState);
-            [languageFilter, genderFilter, ageFilter].forEach(el => el.addEventListener('change', runSearch));
+            // 필터가 변경되면 서버에 다시 요청하지 않고, displayVoices 함수만 호출합니다.
+            [languageFilter, genderFilter, ageFilter].forEach(el => el.addEventListener('change', displayVoices));
             generateBtn.addEventListener('click', handleGenerateTTS);
             
             initializeApp();
