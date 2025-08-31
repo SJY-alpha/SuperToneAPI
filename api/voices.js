@@ -11,16 +11,23 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const apiResponse = await axios.get('https://supertoneapi.com/v1/voices', {
+    const apiResponse = await axios.get('https://supertoneapi.com/v1/voices/search', {
       headers: {
-        // 올바른 인증 헤더로 수정
-        'x-sup-api-key': apiKey 
-      }
+        'x-sup-api-key': apiKey
+      },
+      params: req.query
     });
-    return res.status(200).json(apiResponse.data);
+    
+    // --- 최종 수정 ---
+    // Supertone API의 'items' 배열을 프론트엔드가 기대하는 'voices' 배열로 변경해줍니다.
+    const responseForClient = {
+      voices: apiResponse.data.items || [] 
+    };
+    
+    return res.status(200).json(responseForClient);
 
   } catch (error) {
-    console.error('Error in /api/voices:', error);
+    console.error('Error in /api/voices/search:', error);
     const status = error.response ? error.response.status : 500;
     const message = error.response ? error.response.data : 'Internal Server Error';
     return res.status(status).json({ message });
